@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Sumi Launcher</string>
+    <string name="accessibility_service_name">Sumi Notifications</string>
+    <string name="accessibility_service_summary">Allows Sumi Launcher to open the notifications shade from a swipe-down gesture.</string>
+</resources>
