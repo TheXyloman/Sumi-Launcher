@@ -8,6 +8,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.sumilauncher.model.LauncherApp
 import com.sumilauncher.ui.components.ActionPill
 import com.sumilauncher.ui.components.AppRow
+import com.sumilauncher.ui.components.IconActionButton
 import com.sumilauncher.ui.components.RowSpacer
 import com.sumilauncher.ui.components.SectionLabel
 
@@ -90,8 +96,9 @@ fun EditScreen(
                         testTag = "edit_pinned_${app.componentKey}"
                     },
                 ) {
-                    ActionPill(
-                        label = "Up",
+                    IconActionButton(
+                        icon = Icons.Filled.KeyboardArrowUp,
+                        contentDescription = "Move up",
                         enabled = index > 0,
                         onClick = { onMoveUp(app) },
                         modifier = Modifier.semantics {
@@ -99,8 +106,9 @@ fun EditScreen(
                         },
                     )
                     RowSpacer()
-                    ActionPill(
-                        label = "Down",
+                    IconActionButton(
+                        icon = Icons.Filled.KeyboardArrowDown,
+                        contentDescription = "Move down",
                         enabled = index < pinnedApps.lastIndex,
                         onClick = { onMoveDown(app) },
                         modifier = Modifier.semantics {
@@ -108,8 +116,9 @@ fun EditScreen(
                         },
                     )
                     RowSpacer()
-                    ActionPill(
-                        label = "Remove",
+                    IconActionButton(
+                        icon = Icons.Filled.Close,
+                        contentDescription = "Remove",
                         onClick = { onTogglePinned(app, false) },
                         modifier = Modifier.semantics {
                             testTag = "remove_${app.componentKey}"
@@ -134,8 +143,9 @@ fun EditScreen(
                     testTag = "edit_all_${app.componentKey}"
                 },
             ) {
-                ActionPill(
-                    label = if (isPinned) "Added" else "Add",
+                IconActionButton(
+                    icon = Icons.Filled.Add,
+                    contentDescription = if (isPinned) "Added" else "Add",
                     enabled = !isPinned,
                     onClick = { onTogglePinned(app, true) },
                     modifier = Modifier.semantics {
