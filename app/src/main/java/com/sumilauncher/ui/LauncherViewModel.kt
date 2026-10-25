@@ -5,129 +5,72 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.sumilauncher.AppContainer
-import com.sumilauncher.data.InstalledAppsRepository
-import com.sumilauncher.data.LauncherPrefsRepository
-import com.sumilauncher.data.LauncherPrefsRepository.MoveDirection
+import com.sumilauncher.data.*
 import com.sumilauncher.model.LauncherApp
-import com.sumilauncher.model.PinnedApp
 import com.sumilauncher.platform.LauncherSetupState
 import com.sumilauncher.platform.LauncherSetupStateReader
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+// Display lists are derived once per catalog/preferences change, never by the clock.
 data class LauncherUiState(
     val isLoaded: Boolean = false,
     val onboardingComplete: Boolean = false,
-    val setupState: LauncherSetupState = LauncherSetupState(
-        isDefaultLauncher = false,
-        isAccessibilityEnabled = false,
-    ),
+    val setupState: LauncherSetupState = LauncherSetupState(false, false),
     val allApps: List<LauncherApp> = emptyList(),
-    val pinnedApps: List<PinnedApp> = emptyList(),
+    val pinnedApps: List<LauncherApp> = emptyList(),
+    val hiddenApps: List<LauncherApp> = emptyList(),
+    val customNames: Map<String, String> = emptyMap(),
+    val showIcons: Boolean = false,
+    val iconRevision: Int = 0,
+    val loadError: String? = null,
 ) {
-    val pinnedKeys: Set<String>
-        get() = pinnedApps.mapTo(mutableSetOf()) { it.componentKey }
+    val pinnedKeys: Set<String> get() = pinnedApps.mapTo(mutableSetOf()) { it.componentKey }
 }
 
-class LauncherViewModel(
-    private val application: Application,
-    private val prefsRepository: LauncherPrefsRepository,
-    installedAppsRepository: InstalledAppsRepository,
-) : ViewModel() {
-    private val appsLoaded = MutableStateFlow(false)
-    private val setupState = MutableStateFlow(LauncherSetupStateReader.read(application))
-
-    private val installedApps = installedAppsRepository.observeApps()
-        .onEach { apps ->
-            appsLoaded.value = true
-            prefsRepository.prunePinnedApps(apps.mapTo(mutableSetOf()) { it.componentKey })
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.Eagerly,
-            initialValue = emptyList(),
-        )
-
-    val uiState: StateFlow<LauncherUiState> = combine(
-        appsLoaded,
-        installedApps,
-        prefsRepository.pinnedApps,
-        prefsRepository.onboardingComplete,
-        setupState,
-    ) { isLoaded, apps, pinnedApps, onboardingComplete, currentSetupState ->
-        val appLabelsByKey = apps.associateBy { it.componentKey }
+class LauncherViewModel(private val application: Application, private val container: AppContainer) : ViewModel() {
+    private val setup = MutableStateFlow(LauncherSetupStateReader.read(application))
+    private val messages = Channel<String>(Channel.BUFFERED)
+    val errors = messages.receiveAsFlow()
+    private val catalog = container.installedAppsRepository.observeApps(container.prefsRepository::removeUninstalledPackage)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AppCatalog())
+    private val display = combine(catalog, container.prefsRepository.preferences) { apps, prefs ->
+        val displayApps = buildDisplayApps(apps.apps, prefs)
         LauncherUiState(
-            isLoaded = isLoaded,
-            onboardingComplete = onboardingComplete,
-            setupState = currentSetupState,
-            allApps = apps,
-            pinnedApps = pinnedApps
-                .filter { it.componentKey in appLabelsByKey }
-                .sortedBy { it.sortOrder }
-                .map { pinnedApp ->
-                    val currentApp = appLabelsByKey[pinnedApp.componentKey]
-                    if (currentApp == null || currentApp.label == pinnedApp.label) {
-                        pinnedApp
-                    } else {
-                        pinnedApp.copy(label = currentApp.label)
-                    }
-                },
+            isLoaded = apps.loaded, onboardingComplete = prefs.onboardingComplete,
+            allApps = displayApps.all, pinnedApps = displayApps.pinned, hiddenApps = displayApps.hidden,
+            customNames = prefs.customNames, showIcons = prefs.showIcons,
+            iconRevision = apps.revision, loadError = apps.error,
         )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.Eagerly,
-        initialValue = LauncherUiState(),
-    )
+    }.flowOn(Dispatchers.Default)
+    val uiState = combine(display, setup) { state, currentSetup -> state.copy(setupState = currentSetup) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, LauncherUiState())
 
-    fun refreshSetupState() {
-        setupState.value = LauncherSetupStateReader.read(application)
-    }
-
-    fun setPinned(app: LauncherApp, enabled: Boolean) {
+    fun refreshSetupState() { setup.value = LauncherSetupStateReader.read(application) }
+    fun retryApps() = container.installedAppsRepository.refresh()
+    private fun save(block: suspend LauncherPrefsRepository.() -> Unit) {
         viewModelScope.launch {
-            prefsRepository.setPinned(app, enabled)
+            try { container.prefsRepository.block() }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { messages.send("Your change could not be saved. Please try again.") }
         }
     }
+    fun setPinned(app: LauncherApp, enabled: Boolean) = save { setPinned(app, enabled) }
+    fun movePinnedUp(app: LauncherApp) = save { movePinned(app.componentKey, LauncherPrefsRepository.MoveDirection.UP) }
+    fun movePinnedDown(app: LauncherApp) = save { movePinned(app.componentKey, LauncherPrefsRepository.MoveDirection.DOWN) }
+    fun renameApp(app: LauncherApp, name: String) = save { renameApp(app.componentKey, name) }
+    fun setHidden(app: LauncherApp, hidden: Boolean) = save { setHidden(app, hidden) }
+    fun setShowIcons(value: Boolean) = save { setShowIcons(value) }
+    fun completeOnboarding() = save { setOnboardingComplete(true) }
 
-    fun movePinnedUp(componentKey: String) {
-        movePinned(componentKey, MoveDirection.UP)
-    }
-
-    fun movePinnedDown(componentKey: String) {
-        movePinned(componentKey, MoveDirection.DOWN)
-    }
-
-    fun setOnboardingComplete(complete: Boolean) {
-        viewModelScope.launch {
-            prefsRepository.setOnboardingComplete(complete)
-        }
-    }
-
-    private fun movePinned(componentKey: String, direction: MoveDirection) {
-        viewModelScope.launch {
-            prefsRepository.movePinned(componentKey, direction)
-        }
-    }
-
-    class Factory(
-        private val application: Application,
-        private val container: AppContainer,
-    ) : ViewModelProvider.Factory {
+    class Factory(private val application: Application, private val container: AppContainer) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            if (modelClass.isAssignableFrom(LauncherViewModel::class.java)) {
-                return LauncherViewModel(
-                    application = application,
-                    prefsRepository = container.prefsRepository,
-                    installedAppsRepository = container.installedAppsRepository,
-                ) as T
-            }
-            error("Unknown ViewModel class: ${modelClass.name}")
+            require(modelClass.isAssignableFrom(LauncherViewModel::class.java))
+            return LauncherViewModel(application, container) as T
         }
     }
 }

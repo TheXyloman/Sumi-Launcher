@@ -36,12 +36,14 @@ object PinnedAppsCodec {
                 }
 
                 val sortOrder = parts[3].toIntOrNull() ?: return@mapNotNull null
-                PinnedApp(
-                    packageName = decodeField(parts[0]),
-                    activityName = decodeField(parts[1]),
-                    label = decodeField(parts[2]),
-                    sortOrder = sortOrder,
-                )
+                runCatching {
+                    PinnedApp(
+                        packageName = decodeField(parts[0]),
+                        activityName = decodeField(parts[1]),
+                        label = decodeField(parts[2]),
+                        sortOrder = sortOrder,
+                    )
+                }.getOrNull()
             }
             .sortedBy { it.sortOrder }
             .toList()

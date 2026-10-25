@@ -40,9 +40,9 @@ object NotificationShadeController {
     }
 
     fun openNotifications(): Boolean {
-        return serviceReference.get()
-            ?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
-            ?: false
+        return runCatching {
+            serviceReference.get()?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS) ?: false
+        }.getOrDefault(false)
     }
 
     fun isEnabled(context: Context): Boolean {
@@ -54,6 +54,6 @@ object NotificationShadeController {
 
         return enabledServices
             .split(':')
-            .any { it.equals(componentName.flattenToString(), ignoreCase = true) }
+            .any { ComponentName.unflattenFromString(it) == componentName }
     }
 }

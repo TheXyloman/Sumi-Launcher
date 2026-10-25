@@ -1,87 +1,81 @@
 package com.sumilauncher.ui.components
 
-import android.content.ComponentName
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.core.graphics.drawable.toBitmap
+import com.sumilauncher.SumiApplication
 import com.sumilauncher.model.LauncherApp
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AppRow(
     app: LauncherApp,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
-    iconSize: Dp = 34.dp,
-    minHeight: Dp = 62.dp,
-    labelTextStyle: TextStyle = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+    showIcons: Boolean = false,
+    iconRevision: Int = 0,
+    labelTextStyle: TextStyle = MaterialTheme.typography.bodyLarge,
     trailingContent: @Composable (RowScope.() -> Unit)? = null,
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val ink = MaterialTheme.colorScheme.onSurface
+    val foreground = if (pressed) Color.White else ink
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = minHeight)
-            .combinedClickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick,
-                onLongClick = onLongClick,
-            )
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+        modifier = modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .semantics { if (!app.available) stateDescription = "Unavailable" }
+            .background(if (pressed) ink else Color.White)
+            .combinedClickable(interactionSource = interaction, indication = null, role = Role.Button,
+                onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        AppIcon(
-            app = app,
-            size = iconSize,
-        )
-        Text(
-            text = app.label,
-            style = labelTextStyle,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        trailingContent?.invoke(this)
+        if (showIcons) AppIcon(app, iconRevision)
+        Text(app.label, style = labelTextStyle, color = foreground,
+            maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        CompositionLocalProvider(LocalContentColor provides foreground) { trailingContent?.invoke(this) }
+    }
+}
+
+@Composable
+private fun AppIcon(app: LauncherApp, revision: Int) {
+    val context = LocalContext.current
+    val cache = (context.applicationContext as? SumiApplication)?.container?.iconCache
+    val icon by produceState<android.graphics.Bitmap?>(null, app.componentKey, revision) {
+        value = null
+        value = cache?.load(app)
+    }
+    val grayscale = remember { ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) }) }
+    Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+        if (icon != null) {
+            Image(icon!!.asImageBitmap(), contentDescription = null, colorFilter = grayscale, modifier = Modifier.fillMaxSize())
+        } else {
+            Text(app.label.take(1).uppercase(), style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.border(1.dp, LocalContentColor.current).padding(horizontal = 7.dp, vertical = 2.dp))
+        }
     }
 }
 
@@ -90,133 +84,60 @@ fun ActionPill(
     label: String,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    selected: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-
-    Box(
-        modifier = modifier
-            .widthIn(min = 56.dp)
-            .border(
-                width = 1.dp,
-                color = if (enabled) MaterialTheme.colorScheme.outline
-                else MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
-            )
-            .background(MaterialTheme.colorScheme.surface)
-            .clickable(
-                enabled = enabled,
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick,
-            )
-            .padding(horizontal = 8.dp, vertical = 7.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge.copy(
-                fontSize = when {
-                    label.length >= 12 -> 11.sp
-                    label.length >= 8 -> 12.sp
-                    else -> 13.sp
-                },
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.sp,
-            ),
-            color = if (enabled) MaterialTheme.colorScheme.onSurface
-            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-        )
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val inverted = selected || pressed
+    val ink = MaterialTheme.colorScheme.onSurface
+    Box(modifier.heightIn(min = 48.dp).widthIn(min = 48.dp)
+        .background(if (inverted) ink else Color.White)
+        .border(if (enabled) 1.dp else 0.dp, if (enabled) ink else Color.Transparent)
+        .clickable(enabled = enabled, role = Role.Button, interactionSource = interaction, indication = null, onClick = onClick)
+        .padding(horizontal = 14.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
+        Text(label, style = MaterialTheme.typography.labelLarge,
+            color = if (inverted) Color.White else if (enabled) ink else Color(0xFF666666))
     }
 }
 
 @Composable
-fun IconActionButton(
-    icon: ImageVector,
-    contentDescription: String,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val contentColor = if (enabled) MaterialTheme.colorScheme.onSurface
-    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-
-    Box(
-        modifier = modifier
-            .size(40.dp)
-            .border(
-                width = 1.dp,
-                color = if (enabled) MaterialTheme.colorScheme.outline
-                else MaterialTheme.colorScheme.outline.copy(alpha = 0.45f),
-            )
-            .background(MaterialTheme.colorScheme.surface)
-            .clickable(
-                enabled = enabled,
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = contentColor,
-            modifier = Modifier.size(24.dp),
-        )
+fun TextAction(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Box(modifier.heightIn(min = 48.dp)
+        .background(if (pressed) MaterialTheme.colorScheme.onSurface else Color.White)
+        .clickable(role = Role.Button, interactionSource = interaction, indication = null, onClick = onClick)
+        .padding(horizontal = 4.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
+        Text(label, style = MaterialTheme.typography.labelLarge,
+            color = if (pressed) Color.White else MaterialTheme.colorScheme.onSurface)
     }
 }
 
 @Composable
-private fun AppIcon(
-    app: LauncherApp,
-    size: Dp,
-) {
-    val context = LocalContext.current
-    val squircleShape = RoundedCornerShape(percent = 28)
-    val icon = remember(app.packageName, app.activityName) {
-        runCatching {
-            context.packageManager
-                .getActivityIcon(ComponentName(app.packageName, app.activityName))
-                .toBitmap(width = 96, height = 96)
-                .asImageBitmap()
-        }.getOrNull()
+fun IconActionButton(icon: ImageVector, contentDescription: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val ink = MaterialTheme.colorScheme.onSurface
+    Box(modifier.size(48.dp).background(if (pressed) ink else Color.White)
+        .clickable(enabled = enabled, role = Role.Button, interactionSource = interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center) {
+        Icon(icon, contentDescription, tint = if (pressed) Color.White else if (enabled) ink else Color(0xFF888888), modifier = Modifier.size(22.dp))
     }
-
-    if (icon == null) {
-        Box(
-            modifier = Modifier
-                .size(size)
-                .clip(squircleShape)
-                .border(1.dp, MaterialTheme.colorScheme.outline),
-        )
-        return
-    }
-
-    Image(
-        bitmap = icon,
-        contentDescription = null,
-        modifier = Modifier
-            .size(size)
-            .clip(squircleShape),
-        contentScale = ContentScale.Crop,
-    )
 }
 
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-        color = MaterialTheme.colorScheme.secondary,
-        modifier = modifier.padding(vertical = 4.dp),
-    )
+    Text(text.uppercase(), style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.secondary, modifier = modifier.padding(vertical = 8.dp))
 }
 
 @Composable
-fun RowSpacer() {
-    Spacer(modifier = Modifier.size(8.dp))
+fun ScreenHeader(title: String, onBack: () -> Unit, trailing: (@Composable () -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        TextAction("← Back", onClick = onBack)
+        trailing?.invoke()
+    }
+    Text(title, style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(top = 12.dp, bottom = 20.dp))
+    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
 }

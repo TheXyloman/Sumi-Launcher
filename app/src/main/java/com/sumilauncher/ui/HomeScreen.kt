@@ -1,44 +1,30 @@
 package com.sumilauncher.ui
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.text.format.DateFormat
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.testTag
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.sumilauncher.model.LauncherApp
-import com.sumilauncher.ui.components.AppRow
-import kotlinx.coroutines.delay
-import java.time.ZonedDateTime
+import com.sumilauncher.ui.components.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.Date
 
 @Composable
 fun HomeScreen(
@@ -48,150 +34,62 @@ fun HomeScreen(
     onOpenDrawer: () -> Unit,
     onOpenNotifications: () -> Unit,
     onEdit: () -> Unit,
+    onAppActions: ((LauncherApp) -> Unit)? = null,
+    showIcons: Boolean = false,
+    iconRevision: Int = 0,
+    homeRequest: Int = 0,
 ) {
-    BackHandler(enabled = true) {}
-
-    val listState = rememberLazyListState()
-    var pullDistance by remember { mutableFloatStateOf(0f) }
-    var horizontalDrag by remember { mutableFloatStateOf(0f) }
-
-    val nestedScrollConnection = remember(listState) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source != NestedScrollSource.UserInput) {
-                    return Offset.Zero
-                }
-
-                val atTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
-                if (atTop && available.y > 0f) {
-                    pullDistance += available.y
-                    if (pullDistance >= 120f) {
-                        pullDistance = 0f
-                        onOpenNotifications()
-                    }
-                } else if (available.y < 0f) {
-                    pullDistance = 0f
-                }
-                return Offset.Zero
-            }
-
-            override suspend fun onPostFling(
-                consumed: androidx.compose.ui.unit.Velocity,
-                available: androidx.compose.ui.unit.Velocity,
-            ): androidx.compose.ui.unit.Velocity {
-                pullDistance = 0f
-                return androidx.compose.ui.unit.Velocity.Zero
-            }
-        }
-    }
-
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragEnd = { horizontalDrag = 0f },
-                    onHorizontalDrag = { _, dragAmount ->
-                        horizontalDrag += dragAmount
-                        if (horizontalDrag <= -120f) {
-                            horizontalDrag = 0f
-                            onOpenDrawer()
-                        }
-                    },
-                )
-            }
-            .nestedScroll(nestedScrollConnection)
-            .semantics { testTag = "home_screen" },
-    ) {
-        LazyColumn(
-            state = listState,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 22.dp),
-        ) {
-            item {
-                DateTimeHeader(
-                    onLongPress = onEdit,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            items(
-                count = pinnedApps.size,
-                key = { index -> pinnedApps[index].componentKey },
-            ) { index ->
-                val app = pinnedApps[index]
-                AppRow(
-                    app = app,
-                    onClick = { onLaunchApp(app) },
-                    onLongClick = onEdit,
-                    iconSize = 41.dp,
-                    minHeight = 68.dp,
-                    labelTextStyle = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 19.sp,
-                        letterSpacing = 0.sp,
-                    ),
-                    modifier = Modifier.semantics {
-                        testTag = "pinned_app_${app.componentKey}"
-                    },
-                )
-            }
+    BackHandler {}
+    Column(modifier.fillMaxSize().padding(horizontal = 28.dp).padding(top = 28.dp, bottom = 8.dp).testTag("home_screen")) {
+        DateTimeHeader(onEdit, onOpenDrawer, onOpenNotifications)
+        SectionLabel("Your everyday", Modifier.padding(top = 16.dp))
+        PagedAppList(pinnedApps, modifier = Modifier.weight(1f), showIcons = showIcons, iconRevision = iconRevision,
+            labelStyle = MaterialTheme.typography.titleLarge, resetKey = homeRequest, tagPrefix = "pinned_app",
+            emptyTitle = "A little space for you.", emptyDescription = "Keep the apps you reach for. Leave room for everything else.",
+            emptyAction = { ActionPill("Add apps", modifier = Modifier.testTag("add_apps"), onClick = onEdit) },
+            onClick = onLaunchApp, onLongClick = onAppActions ?: { onEdit() }, onSwipeLeft = onOpenDrawer)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            TextAction("All apps", modifier = Modifier.testTag("open_drawer"), onClick = onOpenDrawer)
+            TextAction("Customize", modifier = Modifier.testTag("open_customize"), onClick = onEdit)
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DateTimeHeader(
-    onLongPress: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+private fun DateTimeHeader(onLongPress: () -> Unit, onOpenDrawer: () -> Unit, onOpenNotifications: () -> Unit) {
     val context = LocalContext.current
-    val timeFormatter = remember(context) { DateFormat.getTimeFormat(context) }
-    val dateFormatter = remember(context) { DateFormat.getMediumDateFormat(context) }
-    var now by remember { mutableStateOf(ZonedDateTime.now()) }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            val current = ZonedDateTime.now()
-            now = current
-            val millisUntilNextMinute = 60_000L - ((current.second * 1_000L) + (current.nano / 1_000_000L))
-            delay(millisUntilNextMinute.coerceAtLeast(1_000L))
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val now by produceState(System.currentTimeMillis(), lifecycle, context) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            val changes = Channel<Unit>(Channel.CONFLATED)
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context, intent: Intent) { changes.trySend(Unit) }
+            }
+            ContextCompat.registerReceiver(context, receiver, IntentFilter().apply {
+                addAction(Intent.ACTION_TIME_CHANGED)
+                addAction(Intent.ACTION_TIMEZONE_CHANGED)
+                addAction(Intent.ACTION_DATE_CHANGED)
+                addAction(Intent.ACTION_LOCALE_CHANGED)
+            }, ContextCompat.RECEIVER_NOT_EXPORTED)
+            try {
+                while (isActive) {
+                    value = System.currentTimeMillis()
+                    withTimeoutOrNull(60_000L - (value % 60_000L)) { changes.receive() }
+                }
+            } finally {
+                context.unregisterReceiver(receiver)
+                changes.close()
+            }
         }
     }
-
-    Column(
-        modifier = modifier
-            .padding(top = 8.dp, bottom = 8.dp)
-            .combinedClickable(
-                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                indication = null,
-                onClick = {},
-                onLongClick = onLongPress,
-            )
-            .semantics { testTag = "date_time_header" },
-    ) {
-        Text(
-            text = dateFormatter.format(java.util.Date.from(now.toInstant())),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.secondary,
-        )
-        Text(
-            text = timeFormatter.format(java.util.Date.from(now.toInstant())),
-            style = MaterialTheme.typography.displaySmall.copy(
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.sp,
-            ),
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        Text(
-            text = "Long press to edit",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.secondary,
-            modifier = Modifier.padding(top = 4.dp),
-        )
+    val time = DateFormat.getTimeFormat(context).format(Date(now))
+    val date = DateFormat.format("EEEE, d MMMM", now).toString()
+    Column(Modifier.fillMaxWidth().testTag("date_time_header")
+        .einkSwipes(onLeft = onOpenDrawer, onDown = onOpenNotifications)
+        .combinedClickable(interactionSource = remember { MutableInteractionSource() }, indication = null,
+            onClick = {}, onLongClick = onLongPress)) {
+        Text(date.uppercase(), style = MaterialTheme.typography.labelMedium)
+        Text(time, style = MaterialTheme.typography.displayLarge, modifier = Modifier.padding(top = 7.dp, bottom = 18.dp))
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline)
     }
 }
