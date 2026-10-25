@@ -1,158 +1,69 @@
 package com.sumilauncher.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.testTag
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.sumilauncher.model.LauncherApp
-import com.sumilauncher.ui.components.ActionPill
-import com.sumilauncher.ui.components.AppRow
-import com.sumilauncher.ui.components.IconActionButton
-import com.sumilauncher.ui.components.RowSpacer
-import com.sumilauncher.ui.components.SectionLabel
+import com.sumilauncher.model.matching
+import com.sumilauncher.ui.components.*
 
 @Composable
 fun EditScreen(
-    allApps: List<LauncherApp>,
-    pinnedApps: List<LauncherApp>,
-    modifier: Modifier = Modifier,
-    onTogglePinned: (LauncherApp, Boolean) -> Unit,
-    onMoveUp: (LauncherApp) -> Unit,
-    onMoveDown: (LauncherApp) -> Unit,
-    onDone: () -> Unit,
+    allApps: List<LauncherApp>, pinnedApps: List<LauncherApp>, modifier: Modifier = Modifier,
+    onTogglePinned: (LauncherApp, Boolean) -> Unit, onMoveUp: (LauncherApp) -> Unit,
+    onMoveDown: (LauncherApp) -> Unit, onDone: () -> Unit,
+    onSettings: () -> Unit = {}, onAppActions: ((LauncherApp) -> Unit)? = null,
+    showIcons: Boolean = false, iconRevision: Int = 0,
 ) {
-    val pinnedKeys = pinnedApps.mapTo(mutableSetOf()) { it.componentKey }
-
     BackHandler(onBack = onDone)
-
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 16.dp, vertical = 22.dp)
-            .semantics { testTag = "edit_screen" },
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = "Edit apps",
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-                ActionPill(
-                    label = "Done",
-                    enabled = pinnedApps.isNotEmpty(),
-                    onClick = onDone,
-                    modifier = Modifier.semantics { testTag = "edit_done" },
-                )
-            }
+    var adding by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val pinnedKeys = remember(pinnedApps) { pinnedApps.mapTo(mutableSetOf()) { it.componentKey } }
+    val available = remember(allApps, query) { allApps.matching(query) }
+    Column(modifier.fillMaxSize().padding(horizontal = 28.dp).padding(top = 12.dp, bottom = 8.dp).testTag("edit_screen")) {
+        ScreenHeader("Customize", onDone, trailing = { TextAction("Settings", Modifier.testTag("open_settings"), onClick = onSettings) })
+        Row(Modifier.padding(top = 20.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActionPill("Home", Modifier.weight(1f).testTag("edit_home_tab"), selected = !adding, onClick = { adding = false })
+            ActionPill("Add apps", Modifier.weight(1f).testTag("edit_add_tab"), selected = adding, onClick = { adding = true })
         }
-        item {
-            SectionLabel(text = "Pinned")
-        }
-        if (pinnedApps.isEmpty()) {
-            item {
-                Text(
-                    text = "Pick at least one app for the home list.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.semantics { testTag = "edit_empty_state" },
-                )
-            }
+        if (adding) {
+            SearchField(query, { query = it }, Modifier.padding(bottom = 12.dp))
+            PagedAppList(available, Modifier.weight(1f), showIcons, iconRevision, resetKey = "add:$query", tagPrefix = "edit_all",
+                emptyTitle = "No matches.", emptyDescription = "Try another app name.",
+                onClick = { onTogglePinned(it, it.componentKey !in pinnedKeys) }, onLongClick = onAppActions,
+                trailingWidth = 48.dp, trailingContent = { app ->
+                    IconActionButton(if (app.componentKey in pinnedKeys) Icons.Default.Check else Icons.Default.Add,
+                        if (app.componentKey in pinnedKeys) "Remove from home" else "Add to home",
+                        modifier = Modifier.testTag("toggle_${app.componentKey}"),
+                        onClick = { onTogglePinned(app, app.componentKey !in pinnedKeys) })
+                })
         } else {
-            items(
-                count = pinnedApps.size,
-                key = { index -> "pinned:${pinnedApps[index].componentKey}" },
-            ) { index ->
-                val app = pinnedApps[index]
-                AppRow(
-                    app = app,
-                    onClick = {},
-                    onLongClick = null,
-                    modifier = Modifier.semantics {
-                        testTag = "edit_pinned_${app.componentKey}"
-                    },
-                ) {
-                    IconActionButton(
-                        icon = Icons.Filled.KeyboardArrowUp,
-                        contentDescription = "Move up",
-                        enabled = index > 0,
-                        onClick = { onMoveUp(app) },
-                        modifier = Modifier.semantics {
-                            testTag = "move_up_${app.componentKey}"
-                        },
-                    )
-                    RowSpacer()
-                    IconActionButton(
-                        icon = Icons.Filled.KeyboardArrowDown,
-                        contentDescription = "Move down",
-                        enabled = index < pinnedApps.lastIndex,
-                        onClick = { onMoveDown(app) },
-                        modifier = Modifier.semantics {
-                            testTag = "move_down_${app.componentKey}"
-                        },
-                    )
-                    RowSpacer()
-                    IconActionButton(
-                        icon = Icons.Filled.Close,
-                        contentDescription = "Remove",
-                        onClick = { onTogglePinned(app, false) },
-                        modifier = Modifier.semantics {
-                            testTag = "remove_${app.componentKey}"
-                        },
-                    )
-                }
-            }
+            PagedAppList(pinnedApps, Modifier.weight(1f), showIcons, iconRevision, resetKey = "home", tagPrefix = "edit_pinned",
+                emptyTitle = "Make it yours.", emptyDescription = "Add a few everyday apps. You can change their order here.",
+                emptyAction = { ActionPill("Choose apps", Modifier.testTag("edit_empty_state"), onClick = { adding = true }) },
+                onClick = { onAppActions?.invoke(it) }, onLongClick = onAppActions,
+                bottomContent = { app, index ->
+                    Row(Modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.End) {
+                        IconActionButton(Icons.Default.KeyboardArrowUp, "Move ${app.label} up", enabled = index > 0,
+                            modifier = Modifier.testTag("move_up_${app.componentKey}"), onClick = { onMoveUp(app) })
+                        IconActionButton(Icons.Default.KeyboardArrowDown, "Move ${app.label} down", enabled = index < pinnedApps.lastIndex,
+                            modifier = Modifier.testTag("move_down_${app.componentKey}"), onClick = { onMoveDown(app) })
+                        IconActionButton(Icons.Default.Close, "Remove ${app.label} from home",
+                            modifier = Modifier.testTag("remove_${app.componentKey}"), onClick = { onTogglePinned(app, false) })
+                    }
+                })
         }
-        item {
-            SectionLabel(text = "All apps", modifier = Modifier.padding(top = 10.dp))
-        }
-        items(
-            count = allApps.size,
-            key = { index -> "all:${allApps[index].componentKey}" },
-        ) { index ->
-            val app = allApps[index]
-            val isPinned = app.componentKey in pinnedKeys
-            AppRow(
-                app = app,
-                onClick = { onTogglePinned(app, !isPinned) },
-                modifier = Modifier.semantics {
-                    testTag = "edit_all_${app.componentKey}"
-                },
-            ) {
-                IconActionButton(
-                    icon = Icons.Filled.Add,
-                    contentDescription = if (isPinned) "Added" else "Add",
-                    enabled = !isPinned,
-                    onClick = { onTogglePinned(app, true) },
-                    modifier = Modifier.semantics {
-                        testTag = "toggle_${app.componentKey}"
-                    },
-                )
-            }
-        }
+        ActionPill("Done", Modifier.fillMaxWidth().testTag("edit_done"), onClick = onDone)
     }
 }
